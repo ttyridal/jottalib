@@ -285,7 +285,7 @@ class JFSFolder(object):
         r = self.jfs.post(url, extra_headers={'Content-Type':'application/octet-stream'})
         return r
 
-    def up(self, fileobj_or_path, filename=None, upload_callback=None):
+    def up(self, fileobj_or_path, filename=None, upload_callback=None, date_created='', date_modified=''):
         'Upload a file to current folder and return the new JFSFile'
         close_on_done = False
 
@@ -307,7 +307,9 @@ class JFSFolder(object):
 
         log.debug('.up %s ->  %s %s', repr(fileobj_or_path), repr(self.path), repr(filename))
         r = self.jfs.up(posixpath.join(self.path, filename), fileobj_or_path,
-            upload_callback=upload_callback)
+            upload_callback=upload_callback,
+            date_created=date_created,
+            date_modified=date_modified)
         if close_on_done:
             fileobj_or_path.close()
         self.sync()
@@ -928,7 +930,7 @@ class JFS(object):
             raise JFSError(r.reason)
         return self.getObject(r) # return a JFS* class
 
-    def up(self, path, fileobject, upload_callback=None, resume_offset=None):
+    def up(self, path, fileobject, upload_callback=None, resume_offset=None, date_created='', date_modified=''):
         "Upload a fileobject to path, HTTP POST-ing to up.jottacloud.com, using the JottaCloud API"
         """
 
@@ -967,28 +969,34 @@ class JFS(object):
 
         log.debug('posting content (len %s, hash %s) to url %s', contentlen, md5hash, url)
         now = datetime.datetime.now().isoformat()
-        params = {'cphash': md5hash}
-        m = requests_toolbelt.MultipartEncoder({
-             'md5': ('', md5hash),
-             'modified': ('', now),
-             'created': ('', now),
-             'file': (os.path.basename(url), fileobject, 'application/octet-stream'),
-        })
+        if date_created == '': date_created = now
+        elif type(date_created) is int:
+            date_created = datetime.datetime.utcfromtimestamp(date_created).isoformat()
+        if date_modified == '': date_modified = now
+        elif type(date_modified) is int:
+            date_modified = datetime.datetime.utcfromtimestamp(date_modified).isoformat()
+
+        formdata = {'md5': ('', md5hash),
+                    'file': (os.path.basename(url), fileobject, 'application/octet-stream'),
+                    }
         headers = {'JMd5':md5hash,
-                   'JCreated': now,
-                   'JModified': now,
                    'X-Jfs-DeviceName': 'Jotta',
                    'JSize': contentlen,
                    'jx_csid': '',
                    'jx_lisence': '',
-                   'content-type': m.content_type,
                    }
+        if date_modified is not None:
+            formdata['modified'] = ('', date_modified)
+            headers['JModified'] = date_modified
+        if date_created is not None:
+            formdata['created'] = ('', date_created)
+            headers['JCreated'] = date_created
+
+        params = {'cphash': md5hash}
+        m = requests_toolbelt.MultipartEncoder(formdata)
+        headers['content-type'] = m.content_type
         fileobject.seek(0) # rewind read index for requests.post
-        files = {'md5': ('', md5hash),
-                 'modified': ('', now),
-                 'created': ('', now),
-                 'file': (os.path.basename(url), fileobject, 'application/octet-stream')}
-        return self.post(url, None, files=files, params=params, extra_headers=headers, upload_callback=upload_callback)
+        return self.post(url, None, files=formdata, params=params, extra_headers=headers, upload_callback=upload_callback)
 
     def new_device(self, name, type):
         """Create a new (backup) device on jottacloud. Types can be one of
