@@ -968,7 +968,7 @@ class JFS(object):
         md5hash = calculate_md5(fileobject)
 
         log.debug('posting content (len %s, hash %s) to url %s', contentlen, md5hash, url)
-        now = datetime.datetime.now().isoformat()
+        now = datetime.datetime.utcnow().isoformat()
         if date_created == '': date_created = now
         elif type(date_created) is int:
             date_created = datetime.datetime.utcfromtimestamp(date_created).isoformat()
